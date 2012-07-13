@@ -1,4 +1,33 @@
-module Filter (Filter) where
+module Filter (
+  --Types
+  Filter,
+  Footprint,
+  Col,
+  Pos,
+  Neighborhood,
+  Img,
+  
+  --filters
+  defaultFilter,
+  noRed,
+  
+  --filtering functions
+  filterPixel,
+  filterImage,
+  applyCustomFilter,
+  
+  --utilities
+  wrapExtend,
+  sumTuplesI,
+  sumColorsF,
+  funColorsF,
+  clampI,
+  clampF,
+  clamp8,
+  color8ToColorF,
+  colorFToColor8,
+  squareFootprint,
+  circularFootprint) where
 
 import Data.Array as Arr
 import Data.Foldable as F
@@ -16,20 +45,22 @@ type Footprint = Seq.Seq (Int,Int)
 
 type Col = (Word8,Word8,Word8,Word8)
 
+type ColF = (Float,Float,Float,Float)
+
 type Pos = (Int,Int)
 
-type Neighborhood = Seq.Seq (Pos,Col)
+type Neighborhood = Seq.Seq (Pos,ColF)
 
 type Img = Array (Int,Int) Col
 
 --Filter type and default filter
-data Filter = Defined  {perPixelFunction :: (Pos,Col) -> (Pos,Col),
-                        combiner :: Col -> (Pos,Col) -> Col,
-                        combinerBaseColor :: Col,
-                        postprocesser :: Neighborhood -> Col -> Img -> Col,
+data Filter = Defined  {perPixelFunction :: (Pos,ColF) -> (Pos,ColF),
+                        combiner :: ColF -> (Pos,ColF) -> ColF,
+                        combinerBaseColor :: ColF,
+                        postprocesser :: Neighborhood -> ColF -> Img -> ColF,
                         footprint :: Footprint
                        }
-              | Custom { customFilter :: Neighborhood -> Img -> Col,
+              | Custom { customFilter :: Neighborhood -> Img -> ColF,
                          footprint :: Footprint}
                 
 defaultFilter :: Filter
@@ -44,28 +75,28 @@ noRed :: Filter
 noRed = defaultFilter {postprocesser = (\ _ (r,g,b,a) _ -> (0,g,b,a)),
                        footprint = (squareFootprint 0 0)}
 
-perPixelFunctionDefault :: (Pos,Col) -> (Pos,Col)
+perPixelFunctionDefault :: (Pos,ColF) -> (Pos,ColF)
 perPixelFunctionDefault (p,c) = (p,c)
   
-combinerDefault :: Col -> (Pos,Col) -> Col
-combinerDefault ca (p,cb) = sumColors ca cb
+combinerDefault :: ColF -> (Pos,ColF) -> ColF
+combinerDefault ca (p,cb) = sumColorsF ca cb
  
-combinerBaseColorDefault :: Col
-combinerBaseColorDefault = (0,0,0,0)
+combinerBaseColorDefault :: ColF
+combinerBaseColorDefault = (0.0,0.0,0.0,0.0)
  
-postprocesserDefault :: Neighborhood -> Col -> Img -> Col
+postprocesserDefault :: Neighborhood -> ColF -> Img -> ColF
 postprocesserDefault n c _ =
-  clampColor $ funColor (div) c (toWord8 ne,toWord8 ne,toWord8 ne,toWord8 ne)
+  funColorsF (/) c (int2Float ne,int2Float ne,int2Float ne,int2Float ne)
     where ne = Seq.length n
 
 -- Filtering functions to be exportated
 filterPixel :: Filter -> Img -> Pos -> (Pos,Col)
 filterPixel (Defined ppf comb combC postp fp) img pos =
-  (pos,postprocessing postp neigh prefinalC img)
+  (pos, colorFToColor8 (postprocessing postp neigh prefinalC img))
     where neigh = neighborhood fp pos img
           prefinalC = (combine comb combC) $ (mapNeighborhood ppf neigh)
 filterPixel (Custom f fp) img pos =
-  (pos,f neigh img)
+  (pos,colorFToColor8 (f neigh img))
     where neigh = neighborhood fp pos img
           
 filterImage :: Filter -> Img -> Img
@@ -73,54 +104,62 @@ filterImage filt img = img//newpixels
   where newpixels = map (filterPixel filt img) (indices img)
 
 -- Pixel proccesing functions
-applyCustomFilter :: (Neighborhood -> Img -> Col) -> Neighborhood -> Img -> Col
+applyCustomFilter :: (Neighborhood -> Img -> ColF) -> Neighborhood -> Img -> ColF
 applyCustomFilter f neigh img = f neigh img
 
-mapNeighborhood :: ((Pos,Col) -> (Pos,Col)) -> Neighborhood -> Neighborhood
+mapNeighborhood :: ((Pos,ColF) -> (Pos,ColF)) -> Neighborhood -> Neighborhood
 mapNeighborhood f neigh = fmap f neigh
 
-combine :: (Col -> (Pos,Col) -> Col) ->
-           Col -> Neighborhood -> Col
+combine :: (ColF -> (Pos,ColF) -> ColF) ->
+           ColF -> Neighborhood -> ColF
 combine f cb neigh = F.foldl f cb neigh
            
-postprocessing :: (Neighborhood -> Col -> Img -> Col) ->
-                  Neighborhood -> Col -> Img -> Col
+postprocessing :: (Neighborhood -> ColF -> Img -> ColF) ->
+                  Neighborhood -> ColF -> Img -> ColF
 postprocessing f neigh cf img = f neigh cf img
 
 neighborhood :: Footprint -> Pos -> Img -> Neighborhood
 neighborhood fp offset img = F.foldl addToPixels Seq.empty fp
-  where wrap = (wrapExtend (bounds img)).(sumTuples offset)
-        addToPixels s p = s |> (p, ((!) img (wrap p)))
+  where wrap = (wrapExtend (bounds img)).(sumTuplesI offset)
+        addToPixels s p = s |> (p, color8ToColorF ((!) img (wrap p)))
 
 --Utility functions
-sumTuples :: (Int,Int) -> (Int,Int) -> (Int,Int)
-sumTuples (a,b) (c,d) = (a+c,b+d)
-
-sumColors :: Col -> Col -> Col
-sumColors  = funColor (+)
-
-funColor :: (Word8 -> Word8 -> Word8) -> Col -> Col -> Col
-funColor f (a,b,c,d) (a',b',c',d') =
-  (cc (f a a') , cc (f b b') , cc (f c c') , cc (f d d'))
-  where cc = clamp8 0 255
-        
 wrapExtend :: ((Int,Int),(Int,Int)) -> (Int,Int) -> (Int,Int)
 wrapExtend ((lx,ly),(hx,hy)) (x,y) = (clampX x, clampY y)
-  where clampX = clamp lx hx
-        clampY = clamp ly hy
+  where clampX = clampI lx hx
+        clampY = clampI ly hy
 
-clamp :: Int -> Int -> Int -> Int
-clamp low high n = min high $ max low n
+sumTuplesI :: (Int,Int) -> (Int,Int) -> (Int,Int)
+sumTuplesI (a,b) (c,d) = (a+c,b+d)
+
+funColorsF :: (Float -> Float -> Float) -> ColF -> ColF -> ColF
+funColorsF f (a,b,c,d) (a',b',c',d') = (f a a' , f b b' , f c c' , f d d')
+        
+sumColorsF :: ColF -> ColF -> ColF
+sumColorsF  = funColorsF (+)
+
+clampI :: Int -> Int -> Int -> Int
+clampI low high n = min high $ max low n
+
+clampF :: Float -> Float -> Float -> Float
+clampF low high n = min high $ max low n
 
 clamp8 :: Word8 -> Word8 -> Word8 -> Word8
 clamp8 low high n = min high $ max low n
 
-clampColor :: Col -> Col
-clampColor (a,b,c,d) = (cc a, cc b, cc c, cc d)
-  where cc = clamp8 0 255
+int2Word8 :: Int -> Word8
+int2Word8 a = fromIntegral $ clampI 0 255 a
 
-toWord8 :: Int -> Word8
-toWord8 a = fromIntegral a
+float2Word8 :: Float -> Word8
+float2Word8 a = int2Word8 $ float2Int $ clampF 0.0 255.0 a
+
+color8ToColorF :: Col -> ColF
+color8ToColorF (a,b,c,d) = (w8ToF a,w8ToF b,w8ToF c,w8ToF d)
+  where w8ToF n = int2Float (fromIntegral n :: Int)
+
+colorFToColor8 :: ColF -> Col
+colorFToColor8 (a,b,c,d) = (fTow8 a,fTow8 b,fTow8 c,fTow8 d)
+  where fTow8 n = fromIntegral (float2Int n) :: Word8
 
 squareFootprint :: Int -> Int -> Footprint
 squareFootprint w h = Seq.fromList [(x,y)| x <- [-h..h] , y <- [-w..w]]
