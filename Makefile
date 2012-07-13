@@ -7,7 +7,7 @@ DOCUMENTABLES = DevILWrapper.hs
 SRCBASE = DevILWrapper.hs
 
 all:
-	#ghc --make main.hs -o rtree
+	ghc --make -O2 -threaded -fforce-recomp fotochop.hs -o fotochop
 
 hoogle:
 	haddock --hoogle -o doc/haddock/hoogle ${DOCUMENTABLES}
