@@ -16,7 +16,7 @@ import Control.Concurrent.MVar
 import Control.Monad
 
 import DevILWrapper
-import Filter (noRed,defaultFilter,filterImage,Filter)
+import Filter (noRed,defaultFilter,gaussianFilter,filterImage,Filter)
 
 -- Comand line data type
 data ImageCmd = Image { ifile :: String, ofile :: String }
@@ -53,6 +53,7 @@ mainIOLoop img = do
   cmdline <- getLine
   case (head cmdline) of
     'b' -> mainFilter [defaultFilter] img
+    'g' -> mainFilter [gaussianFilter 5] img
     'r' -> mainFilter [noRed] img
     'w' -> mainWriteFile "new.jpg" img
     otherwise -> return ()
