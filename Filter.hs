@@ -11,6 +11,7 @@ import Graphics.Rendering.OpenGL
 import Graphics.UI.GLUT
 import Control.Monad (fmap)
 
+-- Type aliases for commodity
 type Footprint = Seq.Seq (Int,Int)
 
 type Col = (Word8,Word8,Word8,Word8)
@@ -21,24 +22,62 @@ type Neighborhood = Seq.Seq (Pos,Col)
 
 type Img = Array (Int,Int) Col
 
-perPixelFunction :: (Pos,Col) -> (Pos,Col)
-perPixelFunction (p,c) = (p,c)
+--Filter type and default filter
+data Filter = Defined  {perPixelFunction :: (Pos,Col) -> (Pos,Col),
+                        combiner :: Col -> (Pos,Col) -> Col,
+                        combinerBaseColor :: Col,
+                        postprocesser :: Neighborhood -> Col -> Img -> Col,
+                        footprint :: Footprint
+                       }
+              | Custom { customFilter :: Neighborhood -> Img -> Col,
+                         footprint :: Footprint}
+                
+defaultFilter :: Filter
+defaultFilter = Defined { perPixelFunction = perPixelFunctionDefault,
+                          combiner = combinerDefault,
+                          combinerBaseColor = combinerBaseColorDefault,
+                          postprocesser = postprocesserDefault,
+                          footprint = circularFootprint 3
+                        }
+                          
+noRed :: Filter
+noRed = defaultFilter {postprocesser = (\ _ (r,g,b,a) _ -> (0,g,b,a)),
+                       footprint = (squareFootprint 0 0)}
+
+perPixelFunctionDefault :: (Pos,Col) -> (Pos,Col)
+perPixelFunctionDefault (p,c) = (p,c)
   
-combiner :: Col -> (Pos,Col) -> Col
-combiner ca (p,cb) = sumColors ca cb
-
-combinerBaseColor :: Col
-combinerBaseColor = (0,0,0,0)
-
-postprocesser :: Neighborhood -> Col -> Img -> Col
-postprocesser n c _ =
-  funColor (div) c (toWord8 ne,toWord8 ne,toWord8 ne,toWord8 ne)
+combinerDefault :: Col -> (Pos,Col) -> Col
+combinerDefault ca (p,cb) = sumColors ca cb
+ 
+combinerBaseColorDefault :: Col
+combinerBaseColorDefault = (0,0,0,0)
+ 
+postprocesserDefault :: Neighborhood -> Col -> Img -> Col
+postprocesserDefault n c _ =
+  clampColor $ funColor (div) c (toWord8 ne,toWord8 ne,toWord8 ne,toWord8 ne)
     where ne = Seq.length n
 
-mapNeighborhood :: ((Pos,Col) -> (Pos,Col)) ->
-                  Footprint -> Img -> Pos -> Neighborhood
-mapNeighborhood f fp img pos = fmap f neigh
-  where neigh = neighborhood fp pos img
+-- Filtering functions to be exportated
+filterPixel :: Filter -> Img -> Pos -> (Pos,Col)
+filterPixel (Defined ppf comb combC postp fp) img pos =
+  (pos,postprocessing postp neigh prefinalC img)
+    where neigh = neighborhood fp pos img
+          prefinalC = (combine comb combC) $ (mapNeighborhood ppf neigh)
+filterPixel (Custom f fp) img pos =
+  (pos,f neigh img)
+    where neigh = neighborhood fp pos img
+          
+filterImage :: Filter -> Img -> Img
+filterImage filt img = img//newpixels
+  where newpixels = map (filterPixel filt img) (indices img)
+
+-- Pixel proccesing functions
+applyCustomFilter :: (Neighborhood -> Img -> Col) -> Neighborhood -> Img -> Col
+applyCustomFilter f neigh img = f neigh img
+
+mapNeighborhood :: ((Pos,Col) -> (Pos,Col)) -> Neighborhood -> Neighborhood
+mapNeighborhood f neigh = fmap f neigh
 
 combine :: (Col -> (Pos,Col) -> Col) ->
            Col -> Neighborhood -> Col
@@ -48,16 +87,12 @@ postprocessing :: (Neighborhood -> Col -> Img -> Col) ->
                   Neighborhood -> Col -> Img -> Col
 postprocessing f neigh cf img = f neigh cf img
 
-class Filter f where  
-  filterPixel :: f -> Img -> Pos -> Col
-                 
-  filterImage :: f -> Img -> Img
-
 neighborhood :: Footprint -> Pos -> Img -> Neighborhood
 neighborhood fp offset img = F.foldl addToPixels Seq.empty fp
   where wrap = (wrapExtend (bounds img)).(sumTuples offset)
         addToPixels s p = s |> (p, ((!) img (wrap p)))
 
+--Utility functions
 sumTuples :: (Int,Int) -> (Int,Int) -> (Int,Int)
 sumTuples (a,b) (c,d) = (a+c,b+d)
 
@@ -80,10 +115,13 @@ clamp low high n = min high $ max low n
 clamp8 :: Word8 -> Word8 -> Word8 -> Word8
 clamp8 low high n = min high $ max low n
 
+clampColor :: Col -> Col
+clampColor (a,b,c,d) = (cc a, cc b, cc c, cc d)
+  where cc = clamp8 0 255
+
 toWord8 :: Int -> Word8
 toWord8 a = fromIntegral a
 
--- Test functions
 squareFootprint :: Int -> Int -> Footprint
 squareFootprint w h = Seq.fromList [(x,y)| x <- [-h..h] , y <- [-w..w]]
   where w2 = w `div` 2
@@ -96,8 +134,8 @@ circularFootprint r = Seq.fromList
                        d (x,y) <= r ]
   where d = distF (0.0,0.0)
         r2 = r/2.0
-        
 
+-- Test functions        
 testImage :: Int -> Int -> Array (Int,Int) Col
 testImage w h = array ((0,0),(h-1,w-1)) (sampleImg1Bindings w h)
 
@@ -115,8 +153,8 @@ distF (x,y) (x',y') = sqrt $ (x-x')**2 + (y-y')**2
 
 -- Image drawing functions
 
-showImage :: Array (Int,Int) (Word8,Word8,Word8) ->
-             Array (Int,Int) (Word8,Word8,Word8) -> 
+showImage :: Array (Int,Int) Col ->
+             Array (Int,Int) Col -> 
              IO ()
 showImage img1 img2  =
   let (_ , (w1,h1)) = bounds img1
@@ -135,20 +173,20 @@ showImage img1 img2  =
     displayCallback $= (drawImages img1 img2 (0,0) (winWidth,winHeight))
     mainLoop
 
-drawPoint' :: (Int,Int) -> (Int,Int) -> ((Int,Int),(Word8,Word8,Word8)) -> IO ()
+drawPoint' :: (Int,Int) -> (Int,Int) -> ((Int,Int),Col) -> IO ()
 drawPoint' winSize imgSize (pos,color) = drawPoint winSize imgSize color pos
 
-drawPoint :: (Int,Int) -> (Int,Int) -> (Word8,Word8,Word8) -> (Int,Int) -> IO ()
-drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b) pos@(x,y) = do
-  color $ (Color4 r g b 255 :: Color4 Word8)
+drawPoint :: (Int,Int) -> (Int,Int) -> Col -> (Int,Int) -> IO ()
+drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) = do
+  color $ (Color4 r g b a :: Color4 Word8)
   vertex $ Vertex3 xcoor ycoor 0.0
     where iw2 = (int2Float imgWidth)
           ih2 = (int2Float imgHeight)/2.0
           xcoor = ((int2Float x)/iw2 - 1.0)
           ycoor = ((int2Float y)/ih2 - 1.0)
 
-drawImages :: Array (Int,Int) (Word8,Word8,Word8) -> 
-              Array (Int,Int) (Word8,Word8,Word8) -> 
+drawImages :: Array (Int,Int) Col -> 
+              Array (Int,Int) Col -> 
               (Int,Int) -> (Int,Int) ->  IO ()
 drawImages img1 img2 offset1 winSize@(winWidth,winHeight) = 
   let (_ , (w1,h1)) = bounds img1
@@ -166,6 +204,6 @@ drawImages img1 img2 offset1 winSize@(winWidth,winHeight) =
     flush
     swapBuffers
                     
-addOffset :: (Int,Int) -> ((Int,Int),(Word8,Word8,Word8)) ->
-             ((Int,Int),(Word8,Word8,Word8))
+addOffset :: (Int,Int) -> ((Int,Int),Col) ->
+             ((Int,Int),Col)
 addOffset (offx,offy) ((x,y),color) = ((x+offx,y+offy),color)
