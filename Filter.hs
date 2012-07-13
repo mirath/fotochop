@@ -15,6 +15,7 @@ module Filter (
   filterPixel,
   filterImage,
   gaussianFilter,
+  medianFilter,
   applyCustomFilter,
   perPixelFunction,
   
@@ -44,6 +45,7 @@ import Data.Word
 import Graphics.Rendering.OpenGL
 import Graphics.UI.GLUT
 import Control.Monad (fmap)
+import Data.Ord (Ordering)
 
 -- Type aliases for commodity
 type Footprint = Seq.Seq (Int,Int)
@@ -83,9 +85,16 @@ defaultFilter = Defined { perPixelFunction = perPixelFunctionDefault,
                           combiner = combinerDefault,
                           combinerBaseColor = combinerBaseColorDefault,
                           postprocesser = postprocesserDefault,
-                          footprint = circularFootprint 3
+                          footprint = circularFootprint 5
                         }
                           
+defaultFilterSemi :: Filter
+defaultFilterSemi = Semi { perPixelFunction = perPixelFunctionDefault,
+                           postprocesser = postprocesserDefault,
+                           postprocesserBaseColor = combinerBaseColorDefault,
+                           footprint = circularFootprint 5
+                         }
+
 gaussianFilter :: Float -> Filter
 gaussianFilter r =
   defaultFilter { perPixelFunction =
@@ -95,9 +104,34 @@ gaussianFilter r =
                   postprocesser = (\ _ _ c _ -> c),
                   footprint = circularFootprint r}
 
+medianFilter :: Float -> Filter
+medianFilter r =
+  defaultFilterSemi {postprocesser = chooseMedian,
+                     footprint = circularFootprint r}
+
 noRed :: Filter
 noRed = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (0,g,b,a)),
                        footprint = (squareFootprint 0 0)}
+
+noGreen :: Filter
+noGreen = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (r,0,b,a)),
+                         footprint = (squareFootprint 0 0)}
+
+noBlue :: Filter
+noBlue = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (r,g,0,a)),
+                        footprint = (squareFootprint 0 0)}
+
+allRed :: Filter
+allRed = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (255,g,b,a)),
+                        footprint = (squareFootprint 0 0)}
+
+allGreen :: Filter
+allGreen = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (r,255,b,a)),
+                          footprint = (squareFootprint 0 0)}
+
+allBlue :: Filter
+allBlue = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (r,g,255,a)),
+                           footprint = (squareFootprint 0 0)}
 
 perPixelFunctionDefault :: Pos -> (Pos,ColF) -> (Pos,ColF)
 perPixelFunctionDefault _ (p,c) = (p,c)
@@ -112,6 +146,20 @@ postprocesserDefault :: Pos -> Neighborhood -> ColF -> Img -> ColF
 postprocesserDefault _ n c _ =
   funColorsF (/) c (int2Float ne,int2Float ne,int2Float ne,int2Float ne)
     where ne = Seq.length n
+
+chooseMedian :: Pos -> Neighborhood -> ColF -> Img -> ColF
+chooseMedian _ neigh _ _ = 
+  snd $ Seq.index (Seq.sortBy sorter neigh) (lneigh `div` 2)
+    where lneigh = Seq.length neigh
+          avg (r,g,b,a) = (r+g+b+a)/4
+          sorter (_,c1) (_,c2) = if not ((avg c1) == (avg c2)) then
+                                   if (avg c1) > (avg c2) then
+                                     GT
+                                   else
+                                     LT
+                                 else
+                                   EQ
+        
 
 -- Filtering functions to be exportated
 filterPixel :: Filter -> Img -> Pos -> (Pos,Col)
