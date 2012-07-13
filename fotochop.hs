@@ -16,7 +16,7 @@ import Control.Concurrent.MVar
 import Control.Monad
 
 import DevILWrapper
-import Filter (noRed,defaultFilter,filterImage)
+import Filter (noRed,defaultFilter,filterImage,Filter)
 
 -- Comand line data type
 data ImageCmd = Image { ifile :: String, ofile :: String }
@@ -42,29 +42,43 @@ main = do
   --mutablePicture <- newMVar $ filterImage defaultFilter originalPicture
   mutablePicture <- newMVar originalPicture
   forkOS $ showImage originalPicture mutablePicture
-  mainIOLoop
-
+  mainIOLoop mutablePicture
 
 prompt :: IO ()
 prompt = putStr "\n>> "
 
-mainIOLoop :: IO ()
-mainIOLoop = do
+mainIOLoop :: MVar Img -> IO ()
+mainIOLoop img = do
   prompt
   cmdline <- getLine
+  case (head cmdline) of
+    'b' -> mainFilter [defaultFilter] img
+    'r' -> mainFilter [noRed] img
+    'w' -> mainWriteFile "new.jpg" img
+    otherwise -> return ()
   putStr "\n"
   --(cmd,args) <- return
   putStrLn cmdline
-  mainIOLoop
+  mainIOLoop img
 
 mainInit :: IO Img
 mainInit = return $ array ((0,0),(0,0)) [((0,0),(255,255,255,255))]
 
-mainFilter :: IO Img
-mainFilter = return $ array ((0,0),(0,0)) [((0,0),(255,255,255,255))]
+mainFilter :: [Filter] -> MVar Img -> IO ()
+mainFilter filts img = 
+  do
+    image <- takeMVar img
+    newimg <- return $ F.foldl' (flip filterImage) image filts
+    putMVar img newimg
+    return ()
 
-mainWriteFile :: String -> IO ()
-mainWriteFile filename = return ()
+mainWriteFile :: String -> MVar Img -> IO ()
+mainWriteFile filename img = 
+  do
+    image <- takeMVar img
+    writeImage' filename image
+    putMVar img image
+    return ()
 
 -- Image drawing functions
 
