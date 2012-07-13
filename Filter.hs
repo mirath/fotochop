@@ -16,6 +16,10 @@ module Filter (
   filterImage,
   gaussianFilter,
   medianFilter,
+  contourFilter1,
+  contourFilter2,
+  sharpeningFilter1,
+  sharpeningFilter2,
   applyCustomFilter,
   perPixelFunction,
   
@@ -60,7 +64,7 @@ type Neighborhood = Seq.Seq (Pos,ColF)
 
 type Img = Array (Int,Int) Col
 
---Filter type and default filter
+--Filter type
 data Filter =   Defined  { perPixelFunction :: Pos -> (Pos,ColF) -> (Pos,ColF),
                            combiner :: Pos -> ColF -> (Pos,ColF) -> ColF,
                            combinerBaseColor :: ColF,
@@ -78,8 +82,11 @@ data Filter =   Defined  { perPixelFunction :: Pos -> (Pos,ColF) -> (Pos,ColF),
                            footprint :: Footprint
                          }
                 
-              | WeightedAverage { weights :: Neighborhood }
-                
+              | WeightedAverage { weights :: Neighborhood,
+                                  postprocesser :: Pos -> Neighborhood -> ColF ->
+                                                   Img -> ColF}
+
+--Filters!!!!!
 defaultFilter :: Filter
 defaultFilter = Defined { perPixelFunction = perPixelFunctionDefault,
                           combiner = combinerDefault,
@@ -94,6 +101,9 @@ defaultFilterSemi = Semi { perPixelFunction = perPixelFunctionDefault,
                            postprocesserBaseColor = combinerBaseColorDefault,
                            footprint = circularFootprint 5
                          }
+defaultFilterWeighted =
+  WeightedAverage { weights = constantWeights 5,
+                    postprocesser = postprocesserId}
 
 gaussianFilter :: Float -> Filter
 gaussianFilter r =
@@ -108,6 +118,20 @@ medianFilter :: Float -> Filter
 medianFilter r =
   defaultFilterSemi {postprocesser = chooseMedian,
                      footprint = circularFootprint r}
+
+contourFilter1 :: Filter
+contourFilter1 = defaultFilterWeighted { weights = sharpeningWeights1 }
+
+contourFilter2 :: Filter
+contourFilter2 = defaultFilterWeighted { weights = sharpeningWeights2 }
+
+sharpeningFilter1 :: Filter
+sharpeningFilter1 = defaultFilterWeighted { weights = sharpeningWeights1, 
+                                           postprocesser = postprocesserAdditive}
+
+sharpeningFilter2 :: Filter
+sharpeningFilter2 = defaultFilterWeighted { weights = sharpeningWeights2, 
+                                           postprocesser = postprocesserAdditive}
 
 noRed :: Filter
 noRed = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (0,g,b,a)),
@@ -133,6 +157,7 @@ allBlue :: Filter
 allBlue = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (r,g,255,a)),
                            footprint = (squareFootprint 0 0)}
 
+--Main implementations of various custom functions for the filtering stages
 perPixelFunctionDefault :: Pos -> (Pos,ColF) -> (Pos,ColF)
 perPixelFunctionDefault _ (p,c) = (p,c)
   
@@ -146,6 +171,12 @@ postprocesserDefault :: Pos -> Neighborhood -> ColF -> Img -> ColF
 postprocesserDefault _ n c _ =
   funColorsF (/) c (int2Float ne,int2Float ne,int2Float ne,int2Float ne)
     where ne = Seq.length n
+
+postprocesserId :: Pos -> Neighborhood -> ColF -> Img -> ColF
+postprocesserId _ _ c _ = c
+
+postprocesserAdditive :: Pos -> Neighborhood -> ColF -> Img -> ColF
+postprocesserAdditive pos _ c img = sumColorsF (color8ToColorF ((!) img pos)) c
 
 chooseMedian :: Pos -> Neighborhood -> ColF -> Img -> ColF
 chooseMedian _ neigh _ _ = 
@@ -174,11 +205,10 @@ filterPixel (Semi ppf postp postpbc fp) img pos =
     where neigh = neighborhood fp pos img
           newneigh = (mapNeighborhood ppf pos neigh)
           
-filterPixel (WeightedAverage weights) img pos = 
-  (pos,colorFToColor8 $ funColorsF (/) (F.foldl1
-                                        (funColorsF (+))
-                                        weightedNeigh) (divs))
-    where weightedNeigh = weightedNeighborhood weights pos img 
+filterPixel (WeightedAverage weights postp) img pos = 
+  (pos,colorFToColor8 $ postp pos weights finalC img)
+    where finalC = funColorsF (/) (F.foldl1 (funColorsF (+)) weightedNeigh) (divs)
+          weightedNeigh = weightedNeighborhood weights pos img 
           szn = Seq.length weights
           divs = (int2Float szn, int2Float szn,
                   int2Float szn, int2Float szn)
@@ -191,7 +221,7 @@ filterImage :: Filter -> Img -> Img
 filterImage filt img = img//newpixels
   where newpixels = parMap rpar (filterPixel filt img) (indices img)
 
--- Pixel proccesing functions
+----------- Pixel proccesing functions ---------------
 applyCustomFilter :: (Neighborhood -> Img -> ColF) -> Neighborhood -> Img -> ColF
 applyCustomFilter f neigh img = f neigh img
 
@@ -300,7 +330,18 @@ constantWeights r =
    d (x,y) <= r ]
     where d = distF (0.0,0.0)
           r2 = r/2.0
-          
+
+sharpeningWeights1 :: Neighborhood
+sharpeningWeights1 =
+  Seq.fromList [((-1, 1),(-1,-1,-1,1)),((0, 1),(-1,-1,-1,1)),((1, 1),(-1,-1,-1,1)),
+                ((-1, 0),(-1,-1,-1,1)),((0, 0),( 8, 8, 8,1)),((1, 0),(-1,-1,-1,1)),
+                ((-1,-1),(-1,-1,-1,1)),((0,-1),(-1,-1,-1,1)),((1,-1),(-1,-1,-1,1))]
+
+sharpeningWeights2 :: Neighborhood
+sharpeningWeights2 =
+  Seq.fromList [((-1, 1),( 0, 0, 0,1)),((0, 1),(-1,-1,-1,1)),((1, 1),( 0, 0, 0,1)),
+                ((-1, 0),(-1,-1,-1,1)),((0, 0),( 4, 4, 4,1)),((1, 0),(-1,-1,-1,1)),
+                ((-1,-1),( 0, 0, 0,1)),((0,-1),(-1,-1,-1,1)),((1,-1),( 0, 0, 0,1))]
 -- Test functions        
 testImage :: Int -> Int -> Array (Int,Int) Col
 testImage w h = array ((0,0),(h-1,w-1)) (sampleImg1Bindings w h)

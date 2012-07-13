@@ -17,7 +17,8 @@ import Control.Monad
 
 import DevILWrapper
 import Filter (noRed,defaultFilter,gaussianFilter,medianFilter,
-               filterImage,Filter)
+               contourFilter1,contourFilter2,sharpeningFilter1,
+               sharpeningFilter2,filterImage,Filter)
 
 -- Comand line data type
 data ImageCmd = Image { ifile :: String, ofile :: String }
@@ -56,6 +57,10 @@ mainIOLoop img = do
     'b' -> mainFilter [defaultFilter] img
     'g' -> mainFilter [gaussianFilter 5] img
     'm' -> mainFilter [medianFilter 10] img
+    's' -> mainFilter [contourFilter1] img
+    'c' -> mainFilter [contourFilter2] img
+    'z' -> mainFilter [sharpeningFilter1] img
+    'x' -> mainFilter [sharpeningFilter2] img
     'r' -> mainFilter [noRed] img
     'w' -> mainWriteFile "new.jpg" img
     otherwise -> return ()
