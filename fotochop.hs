@@ -101,20 +101,6 @@ showImage img1 img2  =
     displayCallback $= (drawImages img1 img2 (0,0) (winWidth,winHeight))
     mainLoop
 
-drawPoint' :: (Int,Int) -> (Int,Int) ->
-              ((Int,Int),RGBAPixel) -> IO ()
-drawPoint' winSize imgSize (pos,color) = drawPoint winSize imgSize color pos
-
-drawPoint :: (Int,Int) -> (Int,Int) -> RGBAPixel -> (Int,Int) -> IO ()
-drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) =
-  do
-    color $ (Color4 r g b a :: Color4 Word8)
-    vertex $ Vertex3 xcoor ycoor 0.0
-      where iw2 = (int2Float imgWidth)/2.0
-            ih2 = (int2Float imgHeight)
-            xcoor = ((int2Float y)/ih2 - 1.0)
-            ycoor = ((int2Float x)/iw2 - 1.0)
-
 {- TO DO: resize window when peeking in the MVar -}
 drawImages :: Img ->
               MVar Img ->
@@ -122,12 +108,10 @@ drawImages :: Img ->
 drawImages img1 img2 offset1 winSize@(winWidth,winHeight) =
   let (_ , (w1,h1)) = bounds img1
       imgSize1 = (w1,h1)
-      offset2 = (0,(fst offset1)+h1)
-      --The offset is in the X direction, but the #$%& coordinate system of
-      --DevIL forces me to put it in the Y component
-      fstImg = renderPrimitive Points $
-               F.mapM_ ((drawPoint' winSize imgSize1).(addOffset offset1))
-               (assocs img1) in
+      offset2 = (0,(fst offset1)+h1) in
+      --This offset is seen like it is in the X direction,
+      --but the #$%& coordinate system of DevIL forces me
+      --to code it in the Y component
   do
     image2 <- takeMVar img2
     (_ , (w2,h2)) <- return $ bounds image2
@@ -135,13 +119,32 @@ drawImages img1 img2 offset1 winSize@(winWidth,winHeight) =
     windowSize $= Size (fromIntegral winWidth :: Int32)
       (fromIntegral winHeight :: Int32)
     clear [ColorBuffer]
-    fstImg
-    renderPrimitive Points $
-      F.mapM_ ((drawPoint' winSize imgSize2).(addOffset offset2))
-      (assocs image2)
+    drawImage offset1 img1
+    drawImage offset2 image2
     putMVar img2 image2
     flush
     swapBuffers
+
+drawImage :: (Int,Int) -> Img -> IO()
+drawImage offset img = renderPrimitive Points drawing
+  where  (_ , (w,h)) = bounds img
+         imgSize = (w,h)  
+         drawing = F.mapM_
+                  ((drawPoint' imgSize).(addOffset offset))
+                  (assocs img)
+
+drawPoint' :: (Int,Int) -> ((Int,Int),RGBAPixel) -> IO ()
+drawPoint' imgSize (pos,color) = drawPoint imgSize color pos
+
+drawPoint :: (Int,Int) -> RGBAPixel -> (Int,Int) -> IO ()
+drawPoint (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) =
+  do
+    color $ (Color4 r g b a :: Color4 Word8)
+    vertex $ Vertex3 xcoor ycoor 0.0
+      where iw2 = (int2Float imgWidth)/2.0
+            ih2 = (int2Float imgHeight)
+            xcoor = ((int2Float y)/ih2 - 1.0)
+            ycoor = ((int2Float x)/iw2 - 1.0)
 
 addOffset :: (Int,Int) -> ((Int,Int),RGBAPixel) ->
              ((Int,Int),RGBAPixel)

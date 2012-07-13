@@ -192,9 +192,7 @@ distF (x,y) (x',y') = sqrt $ (x-x')**2 + (y-y')**2
 
 -- Image drawing functions
 
-showImage :: Array (Int,Int) Col ->
-             Array (Int,Int) Col -> 
-             IO ()
+showImage :: Img -> Img -> IO ()
 showImage img1 img2  =
   let (_ , (w1,h1)) = bounds img1
       (_ , (w2,h2)) = bounds img2
@@ -212,11 +210,33 @@ showImage img1 img2  =
     displayCallback $= (drawImages img1 img2 (0,0) (winWidth,winHeight))
     mainLoop
 
-drawPoint' :: (Int,Int) -> (Int,Int) -> ((Int,Int),Col) -> IO ()
-drawPoint' winSize imgSize (pos,color) = drawPoint winSize imgSize color pos
+drawImages :: Img -> Img -> (Int,Int) -> (Int,Int) ->  IO ()
+drawImages img1 img2 offset1 winSize@(winWidth,winHeight) = 
+  let 
+      (_ , (w1,_)) = bounds img1
+      offset2 = ((fst offset1)+w1,0) in
+  do
+    windowSize $=
+      Size (fromIntegral winWidth :: Int32) (fromIntegral winHeight :: Int32)
+    clear [ColorBuffer]
+    drawImage offset1 img1
+    drawImage offset2 img2
+    flush
+    swapBuffers
 
-drawPoint :: (Int,Int) -> (Int,Int) -> Col -> (Int,Int) -> IO ()
-drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) = do
+drawImage :: (Int,Int) -> Img -> IO()
+drawImage offset img = renderPrimitive Points drawing
+  where  (_ , (w,h)) = bounds img
+         imgSize = (w,h)  
+         drawing = F.mapM_
+                  ((drawPoint' imgSize).(addOffset offset))
+                  (assocs img)
+
+drawPoint' :: (Int,Int) -> ((Int,Int),Col) -> IO ()
+drawPoint' imgSize (pos,color) = drawPoint imgSize color pos
+
+drawPoint :: (Int,Int) -> Col -> (Int,Int) -> IO ()
+drawPoint (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) = do
   color $ (Color4 r g b a :: Color4 Word8)
   vertex $ Vertex3 xcoor ycoor 0.0
     where iw2 = (int2Float imgWidth)
@@ -224,25 +244,6 @@ drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) = do
           xcoor = ((int2Float x)/iw2 - 1.0)
           ycoor = ((int2Float y)/ih2 - 1.0)
 
-drawImages :: Array (Int,Int) Col -> 
-              Array (Int,Int) Col -> 
-              (Int,Int) -> (Int,Int) ->  IO ()
-drawImages img1 img2 offset1 winSize@(winWidth,winHeight) = 
-  let (_ , (w1,h1)) = bounds img1
-      (_ , (w2,h2)) = bounds img2
-      imgSize1 = (w1,h1) 
-      imgSize2 = (w2,h2)
-      offset2 = ((fst offset1)+w1,0)
-      fstImg = renderPrimitive Points $ F.mapM_ ((drawPoint' winSize imgSize1).(addOffset offset1)) (assocs img1)
-      sndImg = renderPrimitive Points $ F.mapM_ ((drawPoint' winSize imgSize2).(addOffset offset2)) (assocs img2) in
-  do
-    windowSize $= Size (fromIntegral winWidth :: Int32) (fromIntegral winHeight :: Int32)
-    clear [ColorBuffer]
-    fstImg
-    sndImg
-    flush
-    swapBuffers
-                    
 addOffset :: (Int,Int) -> ((Int,Int),Col) ->
              ((Int,Int),Col)
 addOffset (offx,offy) ((x,y),color) = ((x+offx,y+offy),color)
