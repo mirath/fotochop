@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+import System.Console.CmdArgs
+import System.Environment
 import Data.Array
 import Data.Foldable as F
 import Data.Ix
@@ -9,34 +12,69 @@ import Graphics.HGL as HGL
 import Graphics.Rendering.OpenGL
 import Graphics.UI.GLUT
 import Control.Concurrent
-  
+import Control.Concurrent.MVar
+import Control.Monad
+
+import DevILWrapper
+
+-- Comand line data type
+data ImageCmd = Image { ifile :: String, ofile :: String }
+              deriving (Show, Data, Typeable)
+
+image = Image {
+  ifile = def
+          &= help "The image to be loaded and filtered"
+          &= typ "INPUT_IMAGE_FILE",
+  ofile = def
+          &= help "The image to be written in disc after filtering."
+          &= typ "OUTPUT_IMAGE_FILE"
+  } &= summary ("FotoChop v0.0, (c) 2012 Victor De Ponte & Germán Jaber, "++
+        "(c) 2012 Universidad Simon Bolivar.")
+
 -- main functions
 main :: IO ()
 main = do
-  return ()
+  --cmdArgs sample
+  [imgFile] <- getArgs
+  ilInit
+  originalPicture <- readImage' imgFile
+  mutablePicture <- newMVar originalPicture
+  forkOS $ showImage originalPicture mutablePicture
+  mainIOLoop
 
-mainInit :: IO (Array (Int,Int) (Word8,Word8,Word8))
-mainInit = return $ array ((0,0),(0,0)) [((0,0),(255,255,255))]
 
-mainFilter :: IO (Array (Int,Int) (Word8,Word8,Word8))
-mainFilter = return $ array ((0,0),(0,0)) [((0,0),(255,255,255))]
+prompt :: IO ()
+prompt = putStr "\n>> "
+
+mainIOLoop :: IO ()
+mainIOLoop = do
+  prompt
+  cmdline <- getLine
+  putStr "\n"
+  --(cmd,args) <- return
+  putStrLn cmdline
+  mainIOLoop
+
+mainInit :: IO Img
+mainInit = return $ array ((0,0),(0,0)) [((0,0),(255,255,255,255))]
+
+mainFilter :: IO Img
+mainFilter = return $ array ((0,0),(0,0)) [((0,0),(255,255,255,255))]
 
 mainWriteFile :: String -> IO ()
 mainWriteFile filename = return ()
 
 -- Image drawing functions
 
-showImage :: Array (Int,Int) (Word8,Word8,Word8) ->
-             Array (Int,Int) (Word8,Word8,Word8) -> 
-             IO ()
+showImage :: Img -> MVar Img -> IO ()
 showImage img1 img2  =
-  let (_ , (w1,h1)) = bounds img1
-      (_ , (w2,h2)) = bounds img2
-      winWidth = w1+w2+2
-      winHeight = max (h1+1) (h2+1)
-      offset1@(off1x,off1y) = ((fromIntegral (-winWidth `div` 2) :: Int),fromIntegral (-winHeight `div` 2) :: Int)
-      offset2               = (off1x+w1+1,off1y+h1+1) in
+  let (_ , (w1,h1)) = bounds img1 in
   do
+    image2 <- takeMVar img2
+    (_ , (w2,h2)) <- return $ bounds image2
+    putMVar img2 image2
+    winWidth <- return $ h1+h2+2
+    winHeight <- return $ max (w1+1) (w2+1)
     (progname,_) <- getArgsAndInitialize
     initialDisplayMode $= [Graphics.UI.GLUT.DoubleBuffered]
     createWindow "Fotochop 0.1"
@@ -46,50 +84,57 @@ showImage img1 img2  =
     displayCallback $= (drawImages img1 img2 (0,0) (winWidth,winHeight))
     mainLoop
 
-drawPoint' :: (Int,Int) -> (Int,Int) -> ((Int,Int),(Word8,Word8,Word8)) -> IO ()
+drawPoint' :: (Int,Int) -> (Int,Int) -> ((Int,Int),(Word8,Word8,Word8,Word8)) -> IO ()
 drawPoint' winSize imgSize (pos,color) = drawPoint winSize imgSize color pos
 
-drawPoint :: (Int,Int) -> (Int,Int) -> (Word8,Word8,Word8) -> (Int,Int) -> IO ()
-drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b) pos@(x,y) = do
-  color $ (Color4 r g b 255 :: Color4 Word8)
+drawPoint :: (Int,Int) -> (Int,Int) -> (Word8,Word8,Word8,Word8) -> (Int,Int) -> IO ()
+drawPoint (winWidth,winHeight) (imgWidth,imgHeight) (r,g,b,a) pos@(x,y) = do
+  color $ (Color4 r g b a :: Color4 Word8)
   vertex $ Vertex3 xcoor ycoor 0.0
-    where iw2 = (int2Float imgWidth)
-          ih2 = (int2Float imgHeight)/2.0
-          xcoor = ((int2Float x)/iw2 - 1.0)
-          ycoor = ((int2Float y)/ih2 - 1.0)
+    where iw2 = (int2Float imgWidth)/2.0
+          ih2 = (int2Float imgHeight)
+          xcoor = ((int2Float y)/ih2 - 1.0)
+          ycoor = ((int2Float x)/iw2 - 1.0)
 
-drawImages :: Array (Int,Int) (Word8,Word8,Word8) -> 
-              Array (Int,Int) (Word8,Word8,Word8) -> 
+{- TO DO: resize window when peeking in the MVar -}
+drawImages :: Img ->
+              MVar Img ->
               (Int,Int) -> (Int,Int) ->  IO ()
-drawImages img1 img2 offset1 winSize@(winWidth,winHeight) = 
+drawImages img1 img2 offset1 winSize@(winWidth,winHeight) =
   let (_ , (w1,h1)) = bounds img1
-      (_ , (w2,h2)) = bounds img2
-      imgSize1 = (w1,h1) 
-      imgSize2 = (w2,h2)
-      offset2 = ((fst offset1)+w1,0) in
-      fstImg = renderPrimitive Points $ F.mapM_ ((drawPoint' winSize imgSize1).(addOffset offset1)) (assocs img1)
-      sndImg = renderPrimitive Points $ F.mapM_ ((drawPoint' winSize imgSize2).(addOffset offset2)) (assocs img2) in
+      imgSize1 = (w1,h1)
+      offset2 = (0,(fst offset1)+h1) --The offset is in the X direction, but the #$%& coordinate system of DevIL forces me to put it in the Y component
+      fstImg = renderPrimitive Points $
+               F.mapM_ ((drawPoint' winSize imgSize1).(addOffset offset1))
+               (assocs img1) in
   do
-    windowSize $= Size (fromIntegral winWidth :: Int32) (fromIntegral winHeight :: Int32)
+    image2 <- takeMVar img2
+    (_ , (w2,h2)) <- return $ bounds image2
+    imgSize2 <- return $ (w2,h2)
+    windowSize $= Size (fromIntegral winWidth :: Int32)
+      (fromIntegral winHeight :: Int32)
     clear [ColorBuffer]
     fstImg
-    sndImg
+    renderPrimitive Points $
+      F.mapM_ ((drawPoint' winSize imgSize2).(addOffset offset2))
+      (assocs image2)
+    putMVar img2 image2
     flush
     swapBuffers
-                    
-addOffset :: (Int,Int) -> ((Int,Int),(Word8,Word8,Word8)) ->
-             ((Int,Int),(Word8,Word8,Word8))
+
+addOffset :: (Int,Int) -> ((Int,Int),(Word8,Word8,Word8,Word8)) ->
+             ((Int,Int),(Word8,Word8,Word8,Word8))
 addOffset (offx,offy) ((x,y),color) = ((x+offx,y+offy),color)
-  
-                                      
+
+
 -- Test functions
 
-testImage :: Int -> Int -> Array (Int,Int) (Word8,Word8,Word8)
+testImage :: Int -> Int -> Img
 testImage w h = array ((0,0),(h-1,w-1)) (sampleImg1Bindings w h)
 
-sampleImg1Bindings :: Int -> Int -> [((Int,Int),(Word8,Word8,Word8))]
+sampleImg1Bindings :: Int -> Int -> [((Int,Int),(Word8,Word8,Word8,Word8))]
 sampleImg1Bindings w h =
-  [((x,y) , (c (x,y), 0, c (x,y))) |
+  [((x,y) , (c (x,y), 0, c (x,y),255)) |
    x<-[0..(h-1)] , y<-[0..(w-1)]]
   where c = dist (0,0)
 

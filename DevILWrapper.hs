@@ -35,7 +35,9 @@ module DevILWrapper (
   Img(..), Index(..), RGBAPixel(..), Range(..),
   -- * Wrapper Functions
   readImage',  -- :: FilePath -> IO Img
-  writeImage'  -- :: FilePath -> Img -> IO ()
+  writeImage',  -- :: FilePath -> Img -> IO ()
+  -- * Codec.Image.DevIL functions
+  ilInit
   ) where
 
 import Data.Sequence as S
@@ -112,16 +114,13 @@ writeImage' fp img = writeImage fp $ unCushy img
 main = do
   [imageName] <- getArgs
   ilInit
-  putStr $ "Leyendo la imagen...\n\tImagen: "++imageName++"\n"
   loadedImg <- readImage imageName
-  putStr "Imagen cargada!!!\n"
-  print $ show loadedImg
-  putStr "Representando la imagen...\n"
-  putStr "Imagen representada!!!\n"
-  print $ cushy loadedImg
-  putStr "Devolviendo la representacion\n"
-  putStr "Representación devuelta!!!\n"
-  print $ unCushy $ cushy loadedImg
-  putStr "Escribiendo la imagen...\n"
-  writeImage  ("new"++imageName) $ unCushy $ cushy loadedImg
-  putStr $ "Imagen escrita!!!\n\tImagen: "++imageName++"\n\n"
+  cushyImage <- readImage' imageName
+  writeImage  ("new"++imageName) loadedImg
+  writeImage' ("newCushy"++imageName) cushyImage
+  putStr "Image loaded:\n"
+  print loadedImg
+  putStr "Image transformed:\n"
+  print cushyImage
+  putStr $ "Image written...\n\tLoaded Image: new"++imageName++
+    "\n\tTransformed Image: newCushy"++imageName++"\n"
