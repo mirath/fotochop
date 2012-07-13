@@ -4,3 +4,8 @@ cabal-dev
 *.hi
 *.chi
 *.chs.h
+*~
+*#*#*
+*.jpg
+*.png
+*.gif
