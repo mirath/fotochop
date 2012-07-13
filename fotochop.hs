@@ -9,12 +9,6 @@ import Graphics.HGL as HGL
 import Graphics.Rendering.OpenGL
 import Graphics.UI.GLUT
 import Control.Concurrent
-
-class Filter f where
-  filterPixel :: (Filter f) =>
-                 f -> Array (Int,Int) (Word8,Word8,Word8) -> (Int,Int) -> (Word8,Word8,Word8)
-  filterImage :: (Filter f) =>
-                 f -> Array (Int,Int) (Word8,Word8,Word8) -> Array (Int,Int) (Word8,Word8,Word8)
   
 -- main functions
 main :: IO ()
@@ -49,7 +43,6 @@ showImage img1 img2  =
     windowSize $= Size (fromIntegral winWidth :: Int32) (fromIntegral winHeight :: Int32)
     clearColor $= Color4 0 0 0 1
     clear [ColorBuffer]
-    --dl <- defineNewList Compile $ F.mapM_ (drawPoint'.(addOffset offset)) (assocs img1)
     displayCallback $= (drawImages img1 img2 (0,0) (winWidth,winHeight))
     mainLoop
 
@@ -73,16 +66,14 @@ drawImages img1 img2 offset1 winSize@(winWidth,winHeight) =
       (_ , (w2,h2)) = bounds img2
       imgSize1 = (w1,h1) 
       imgSize2 = (w2,h2)
-      offset2 = ((fst offset1)+w1,0)
+      offset2 = ((fst offset1)+w1,0) in
       fstImg = renderPrimitive Points $ F.mapM_ ((drawPoint' winSize imgSize1).(addOffset offset1)) (assocs img1)
       sndImg = renderPrimitive Points $ F.mapM_ ((drawPoint' winSize imgSize2).(addOffset offset2)) (assocs img2) in
   do
     windowSize $= Size (fromIntegral winWidth :: Int32) (fromIntegral winHeight :: Int32)
     clear [ColorBuffer]
-    --renderPrimitive Points $ F.mapM_ (\(x, y, z)->vertex$Vertex3 x y z) ([(8,8,0),(-8,-8,0),(-8,8,0),(8,-8,0),(0,0,0)]::[(GLint,GLint,GLint)])
     fstImg
     sndImg
-    --callList dl
     flush
     swapBuffers
                     
