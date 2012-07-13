@@ -35,7 +35,7 @@ module DevILWrapper (
   Img(..), Index(..), RGBAPixel(..), Range(..),
   -- * Wrapper Functions
   readImage',  -- :: FilePath -> IO Img
-  -- writeImage'  -- :: FilePath -> Img -> IO ()
+  writeImage'  -- :: FilePath -> Img -> IO ()
   ) where
 
 import Data.Sequence as S
@@ -47,10 +47,12 @@ import Data.Array.Unboxed as AU
 import System.Environment
 
 type Image = UArray (Int, Int, Int) Word8
+{- EXPORTED TYPE ALIASES -}
 type Img = Array Index RGBAPixel
 type Index = (Int,Int)
 type RGBAPixel = (Word8,Word8,Word8,Word8)
 type Range = (Index,Index)
+{- END OF EXPORTED TYPE ALIASES -}
 
 setVal :: RGBAPixel -> Int -> Word8 -> RGBAPixel
 setVal (r,g,b,a) channel val =
@@ -61,31 +63,51 @@ setVal (r,g,b,a) channel val =
     3 -> (r,g,b,val)
 
 cushy :: Image -> Img
-cushy readImg =
-  array newBounds $ newMap
-    where
-      readMap = A.assocs readImg
-      init = ( ( (0,0) , (0,0,0,0) ), S.empty)
-      f :: ((Index,RGBAPixel), Seq (Index,RGBAPixel))
-           -> ((Int,Int,Int),Word8)
-           -> ((Index,RGBAPixel), Seq (Index,RGBAPixel))
-      f (( (x,y) , pixel ), seq) ((x1,y1,chan), val) =
-        case chan of
-          3 -> (newPixel, seq |> newPixel)
-          _ -> (newPixel, seq)
-        where
-          newPixel = ((x1,y1), setVal pixel chan val)
-      newMap = F.toList $ snd $ foldl' f init readMap
-      newBounds = case (bounds readImg) of
-        ((lx,ly,_),(ux,uy,_)) -> ((lx,ly),(ux,uy))
+cushy readImg = array newBounds newMap
+  where
+    readMap = A.assocs readImg
+    init = ( ( (0,0) , (0,0,0,0) ), S.empty)
+    f :: ((Index,RGBAPixel), Seq (Index,RGBAPixel))
+         -> ((Int,Int,Int),Word8)
+         -> ((Index,RGBAPixel), Seq (Index,RGBAPixel))
+    f (( (x,y) , pixel ), seq) ((x1,y1,chan), val) =
+      case chan of
+        3 -> (newPixel, seq |> newPixel)
+        _ -> (newPixel, seq)
+      where
+        newPixel = ((x1,y1), setVal pixel chan val)
+    newMap = F.toList $ snd $ foldl' f init readMap
+    newBounds = case (bounds readImg) of
+      ((lx,ly,_),(ux,uy,_)) -> ((lx,ly),(ux,uy))
 
-readImage' :: FilePath -> IO Img
+unCushy :: Img -> Image
+unCushy image = AU.array newBounds newMap
+  where
+    original = A.assocs image
+    newMap = F.concatMap f original
+    f :: (Index, RGBAPixel) -> [((Int, Int, Int), Word8)]
+    f ((x,y),(r,g,b,a)) = [((x,y,0),r),((x,y,1),g),((x,y,2),b),((x,y,3),a)]
+    newBounds = case (bounds image) of
+      ((lx,ly),(ux,uy)) -> ((lx,ly,0),(ux,uy,3))
+
+{- EXPORTED FUNCTIONS -}
+
+-- | Reads an image into an RGBA array. Indices are (row,column), and the value
+--   is a tuple of the (r,g,b,a) channels.
+readImage' :: FilePath  -- ^ path to the image to read.
+              -> IO Img -- ^ IO action with the read image as its side-effect.
 readImage' fp = do
   image <- readImage fp
   return $ cushy image
 
--- writeImage' :: FilePath -> Img -> IO ()
--- writeImage' fp img = writeImage fp $ unCushy img
+-- | Writes an RGBA array to a file. Indices are (row,column), and the value
+--   is a tuple of the (r,g,b,a) channels.
+writeImage' :: FilePath -- ^ path to the image to write.
+               -> Img   -- ^ Array representation of the image to be written.
+               -> IO () -- ^ void IO action.
+writeImage' fp img = writeImage fp $ unCushy img
+
+{- END OF EXPORTED FUNCTIONS -}
 
 main = do
   [imageName] <- getArgs
@@ -93,10 +115,13 @@ main = do
   putStr $ "Leyendo la imagen...\n\tImagen: "++imageName++"\n"
   loadedImg <- readImage imageName
   putStr "Imagen cargada!!!\n"
+  print $ show loadedImg
   putStr "Representando la imagen...\n"
   putStr "Imagen representada!!!\n"
   print $ cushy loadedImg
+  putStr "Devolviendo la representacion\n"
+  putStr "Representación devuelta!!!\n"
+  print $ unCushy $ cushy loadedImg
   putStr "Escribiendo la imagen...\n"
-  writeImage  ("new"++imageName) loadedImg
+  writeImage  ("new"++imageName) $ unCushy $ cushy loadedImg
   putStr $ "Imagen escrita!!!\n\tImagen: "++imageName++"\n\n"
-  print $ show loadedImg
