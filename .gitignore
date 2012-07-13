@@ -1,3 +1,5 @@
+/doc
+/testImages
 dist
 cabal-dev
 *.o
@@ -5,3 +7,7 @@ cabal-dev
 *.chi
 *.chs.h
 *~
+*#*#*
+*.jpg
+*.png
+*.gif
