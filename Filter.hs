@@ -381,6 +381,7 @@ canny img = grads
         gx = filterImage sobelXFilter bw
         gy = filterImage sobelYFilter bw
         grads = joinArrays pitagoras gx gy
+        --rads = joinArrays (atan.(/)) gx gy
 
 joinArrays :: (Ix i) => (a -> b -> c) -> Array i a -> Array i b -> Array i c
 joinArrays f a1 a2 = array limits (map (mixElems f a1 a2) inds)
@@ -397,6 +398,17 @@ pitagoras c1 c2 = colorFToColor8 (sqrt r, sqrt g, sqrt b, 255)
   where c1' = color8ToColorF c1
         c2' = color8ToColorF c2
         (r,g,b,a) = funColorsF (+) (funColorsF (*) c1' c1') (funColorsF (*) c2' c2')
+        
+nearest45 :: Float -> Pos
+nearest45 rad
+  | rad < (pi/8) = (1,0)
+  | (rad >= (pi/8)) && (rad < (2*pi/8)) = (1,1)
+  | (rad >= (2*pi/8)) && (rad < (3*pi/8)) = (0,1)
+  | (rad >= (3*pi/8)) && (rad < (4*pi/8)) = (-1,1)
+  | (rad >= (4*pi/8)) && (rad < (5*pi/8)) = (-1,0)
+  | (rad >= (5*pi/8)) && (rad < (6*pi/8)) = (-1,-1)
+  | (rad >= (6*pi/8)) && (rad < (7*pi/8)) = (0,-1)
+  | (rad >= (7*pi/8)) && (rad < (8*pi/8)) = (1,-1)
 
 -- Test functions        
 testImage :: Int -> Int -> Array (Int,Int) Col
