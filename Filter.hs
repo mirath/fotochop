@@ -20,6 +20,8 @@ module Filter (
   contourFilter2,
   sharpeningFilter1,
   sharpeningFilter2,
+  blackAndWhiteFilter,
+  canny,
   applyCustomFilter,
   perPixelFunction,
   
@@ -40,6 +42,7 @@ module Filter (
 
 import Data.Array as Arr
 import Data.Foldable as F
+import Data.Functor as Func
 import GHC.Float
 import Data.Ix
 import Data.Int
@@ -97,13 +100,13 @@ defaultFilter = Defined { perPixelFunction = perPixelFunctionDefault,
                           
 defaultFilterSemi :: Filter
 defaultFilterSemi = Semi { perPixelFunction = perPixelFunctionDefault,
-                           postprocesser = postprocesserDefault,
+                           postprocesser = postprocesserId,
                            postprocesserBaseColor = combinerBaseColorDefault,
                            footprint = circularFootprint 5
                          }
 defaultFilterWeighted =
   WeightedAverage { weights = constantWeights 5,
-                    postprocesser = postprocesserId}
+                    postprocesser = postprocesserId }
 
 gaussianFilter :: Float -> Filter
 gaussianFilter r =
@@ -111,7 +114,7 @@ gaussianFilter r =
                      (\ pp (np,c) ->
                        (np,colorTimesF c (gaussian np))
                      ),
-                  postprocesser = (\ _ _ c _ -> c),
+                  postprocesser = postprocesserId,
                   footprint = circularFootprint r}
 
 medianFilter :: Float -> Filter
@@ -120,10 +123,12 @@ medianFilter r =
                      footprint = circularFootprint r}
 
 contourFilter1 :: Filter
-contourFilter1 = defaultFilterWeighted { weights = sharpeningWeights1 }
+contourFilter1 = defaultFilterWeighted { weights = sharpeningWeights1,
+                                         postprocesser = postprocesserId }
 
 contourFilter2 :: Filter
-contourFilter2 = defaultFilterWeighted { weights = sharpeningWeights2 }
+contourFilter2 = defaultFilterWeighted { weights = sharpeningWeights2,
+                                         postprocesser = postprocesserId }
 
 sharpeningFilter1 :: Filter
 sharpeningFilter1 = defaultFilterWeighted { weights = sharpeningWeights1, 
@@ -132,6 +137,18 @@ sharpeningFilter1 = defaultFilterWeighted { weights = sharpeningWeights1,
 sharpeningFilter2 :: Filter
 sharpeningFilter2 = defaultFilterWeighted { weights = sharpeningWeights2, 
                                            postprocesser = postprocesserAdditive}
+
+blackAndWhiteFilter :: Filter
+blackAndWhiteFilter =
+  defaultFilter {
+       postprocesser = (\ _ _ c@(_,_,_,a) _ -> (colorAvg c,colorAvg c,colorAvg c,a)),
+       footprint = squareFootprint 0 0}
+
+sobelXFilter :: Filter
+sobelXFilter = defaultFilterWeighted { weights = sobelOperatorX }
+
+sobelYFilter :: Filter
+sobelYFilter = defaultFilterWeighted { weights = sobelOperatorY }
 
 noRed :: Filter
 noRed = defaultFilter {postprocesser = (\ _ _ (r,g,b,a) _ -> (0,g,b,a)),
@@ -182,7 +199,7 @@ chooseMedian :: Pos -> Neighborhood -> ColF -> Img -> ColF
 chooseMedian _ neigh _ _ = 
   snd $ Seq.index (Seq.sortBy sorter neigh) (lneigh `div` 2)
     where lneigh = Seq.length neigh
-          avg (r,g,b,a) = (r+g+b+a)/4
+          avg = colorAvg
           sorter (_,c1) (_,c2) = if not ((avg c1) == (avg c2)) then
                                    if (avg c1) > (avg c2) then
                                      GT
@@ -252,6 +269,9 @@ weightedNeighborhood ng offset img = F.foldl addToPixels Seq.empty ng
 gaussian :: Pos -> Float
 gaussian (x,y) = (exp (-((x'*x'+y'*y')/2.0)))/(2*pi)
   where (x',y') = (int2Float x, int2Float y)
+
+colorAvg :: ColF -> Float
+colorAvg (r,g,b,a) = (r+g+b)/3.0
 
 wrapExtend :: ((Int,Int),(Int,Int)) -> (Int,Int) -> (Int,Int)
 wrapExtend ((lx,ly),(hx,hy)) (x,y) = (clampX x, clampY y)
@@ -342,6 +362,42 @@ sharpeningWeights2 =
   Seq.fromList [((-1, 1),( 0, 0, 0,1)),((0, 1),(-1,-1,-1,1)),((1, 1),( 0, 0, 0,1)),
                 ((-1, 0),(-1,-1,-1,1)),((0, 0),( 4, 4, 4,1)),((1, 0),(-1,-1,-1,1)),
                 ((-1,-1),( 0, 0, 0,1)),((0,-1),(-1,-1,-1,1)),((1,-1),( 0, 0, 0,1))]
+  
+sobelOperatorX :: Neighborhood
+sobelOperatorX =
+  Seq.fromList [((-1, 1),(-1,-1,-1,1)),((0, 1),(0,0,0,1)),((1, 1),(1,1,1,1)),
+                ((-1, 0),(-2,-2,-2,1)),((0, 0),(0,0,0,1)),((1, 0),(2,2,2,1)),
+                ((-1,-1),(-1,-1,-1,1)),((0,-1),(0,0,0,1)),((1,-1),(1,1,1,1))]
+
+sobelOperatorY :: Neighborhood
+sobelOperatorY =
+  Seq.fromList [((-1, 1),(-1,-1,-1,1)),((0, 1),(-2,-2,-2,1)),((1, 1),(-1,-1,-1,1)),
+                ((-1, 0),( 0, 0, 0,1)),((0, 0),( 0, 0, 0,1)),((1, 0),( 0, 0, 0,1)),
+                ((-1,-1),( 1, 1, 1,1)),((0,-1),( 2, 2, 2,1)),((1,-1),( 1, 1, 1,1))]
+
+canny :: Img -> Img
+canny img = grads
+  where bw = filterImage (gaussianFilter 4) $ filterImage blackAndWhiteFilter img
+        gx = filterImage sobelXFilter bw
+        gy = filterImage sobelYFilter bw
+        grads = joinArrays pitagoras gx gy
+
+joinArrays :: (Ix i) => (a -> b -> c) -> Array i a -> Array i b -> Array i c
+joinArrays f a1 a2 = array limits (map (mixElems f a1 a2) inds)
+  where inds = indices a1
+        limits = bounds a1
+
+mixElems :: (Ix i) => (a -> b -> c) -> Array i a -> Array i b -> i -> (i,c)
+mixElems f a1 a2 i = (i,f e1 e2)
+  where e1 = (!) a1 i
+        e2 = (!) a2 i
+
+pitagoras :: Col -> Col -> Col
+pitagoras c1 c2 = colorFToColor8 (sqrt r, sqrt g, sqrt b, 255)
+  where c1' = color8ToColorF c1
+        c2' = color8ToColorF c2
+        (r,g,b,a) = funColorsF (+) (funColorsF (*) c1' c1') (funColorsF (*) c2' c2')
+
 -- Test functions        
 testImage :: Int -> Int -> Array (Int,Int) Col
 testImage w h = array ((0,0),(h-1,w-1)) (sampleImg1Bindings w h)

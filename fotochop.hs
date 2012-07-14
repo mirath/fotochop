@@ -18,7 +18,8 @@ import Control.Monad
 import DevILWrapper
 import Filter (noRed,defaultFilter,gaussianFilter,medianFilter,
                contourFilter1,contourFilter2,sharpeningFilter1,
-               sharpeningFilter2,filterImage,Filter)
+               sharpeningFilter2,filterImage,blackAndWhiteFilter,
+               canny,Filter)
 
 -- Comand line data type
 data ImageCmd = Image { ifile :: String, ofile :: String }
@@ -56,11 +57,13 @@ mainIOLoop img = do
   case (head cmdline) of
     'b' -> mainFilter [defaultFilter] img
     'g' -> mainFilter [gaussianFilter 5] img
-    'm' -> mainFilter [medianFilter 10] img
+    'm' -> mainFilter [medianFilter 5] img
     's' -> mainFilter [contourFilter1] img
     'c' -> mainFilter [contourFilter2] img
     'z' -> mainFilter [sharpeningFilter1] img
     'x' -> mainFilter [sharpeningFilter2] img
+    'n' -> mainFilter [blackAndWhiteFilter] img
+    'y' -> mainCanny img
     'r' -> mainFilter [noRed] img
     'w' -> mainWriteFile "new.jpg" img
     otherwise -> return ()
@@ -77,6 +80,14 @@ mainFilter filts img =
   do
     image <- takeMVar img
     newimg <- return $ F.foldl' (flip filterImage) image filts
+    putMVar img newimg
+    return ()
+
+mainCanny :: MVar Img -> IO ()
+mainCanny img = 
+  do
+    image <- takeMVar img
+    newimg <- return $ canny image
     putMVar img newimg
     return ()
 
