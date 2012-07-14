@@ -25,7 +25,10 @@ import Control.Monad
 import Text.ParserCombinators.Parsec as P
 
 import DevILWrapper
-import Filter (noRed,defaultFilter,filterImage,Filter)
+import Filter (noRed,defaultFilter,gaussianFilter,medianFilter,
+               contourFilter1,contourFilter2,sharpeningFilter1,
+               sharpeningFilter2,filterImage,blackAndWhiteFilter,
+               canny,Filter)
 
 {- Error reporting data type -}
 data CLInputError = FlagNeeded String
@@ -128,15 +131,36 @@ mainIOLoop img outf = forever $ do
   cmdline <- getLine
   case (parse command "parse error" cmdline) of
     Left err -> print err
-    Right (Filter Default) -> 
-    Right (Filter Gaussian) -> a
-    Right (Filter Median) -> a
-    Right (Filter Contour1) -> a
-    Right (Filter Contour2) -> a
-    Right (Filter Sharpening1) -> a
-    Right (Filter Sharpening2) -> a
-    Right (Filter BlackAndWhite) -> a
-    Right (Filter NoRed) -> a
+    Right (Filter Default) -> do
+      putStrLn "Applying default filter..."
+      mainFilter [defaultFilter] img
+    Right (Filter Gaussian) -> do
+      putStrLn "Applying gaussian filter..."
+      mainFilter [gaussianFilter 5] img
+    Right (Filter Median) -> do
+      putStrLn "Applying median filter..."
+      mainFilter [medianFilter 5] img
+    Right (Filter Contour1) -> do
+      putStrLn "Applying contour1 filter..."
+      mainFilter [contourFilter1] img
+    Right (Filter Contour2) -> do
+      putStrLn "Applying contour2 filter..."
+      mainFilter [contourFilter2] img
+    Right (Filter Sharpening1) -> do
+      putStrLn "Applying sharpening1 filter..."
+      mainFilter [sharpeningFilter1] img
+    Right (Filter Sharpening2) -> do
+      putStrLn "Applying sharpening1 filter..."
+      mainFilter [sharpeningFilter2] img
+    Right (Filter BlackAndWhite) -> do
+      putStrLn "Applying black and white filter..."
+      mainFilter [blackAndWhiteFilter] img
+    Right (Filter Canny) -> do
+      putStrLn "Applying canny filter..."
+      mainCanny img
+    Right (Filter NoRed) -> do
+      putStrLn "Applying no-red filter..."
+      mainFilter [noRed] img
     Right (Filter NoGreen) -> a
     Right (Filter NoBlue) -> a
     Right (Filter AllRed) -> a
@@ -164,6 +188,14 @@ mainFilter filts img =
   do
     image <- takeMVar img
     newimg <- return $ F.foldl' (flip filterImage) image filts
+    putMVar img newimg
+    return ()
+
+mainCanny :: MVar Img -> IO ()
+mainCanny img =
+  do
+    image <- takeMVar img
+    newimg <- return $ canny image
     putMVar img newimg
     return ()
 
@@ -275,6 +307,7 @@ data FilterAlgorithm = Default
                      | Sharpening1
                      | Sharpening2
                      | BlackAndWhite
+                     | Canny
                      | NoRed | NoGreen | NoBlue
                      | AllRed | AllGreen | AllBlue
                      | Weighted [((Int,Int), (Word8,Word8,Word8,Word8))]
@@ -387,6 +420,11 @@ blackAndWhite = do
   string "BlackAndWhite"
   return BlackAndWhite
 
+canny :: Parser FilterAlgorithm
+canny = do
+  string "Canny"
+  return Canny
+
 nored :: Parser FilterAlgorithm
 nored = do
   string "NoRed"
@@ -438,6 +476,7 @@ filterRec = try defaultFilterParser
             <|> try sharpening1
             <|> try sharpening2
             <|> try blackAndWhite
+            <|> try canny
             <|> try nored
             <|> try nogreen
             <|> try noblue
