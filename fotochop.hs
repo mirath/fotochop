@@ -25,10 +25,11 @@ import Control.Monad
 import Text.ParserCombinators.Parsec as P
 
 import DevILWrapper
-import Filter (noRed,defaultFilter,gaussianFilter,medianFilter,
+import Filter (noRed,noGreen,noBlue,allRed,allGreen,allBlue,
+               defaultFilter,gaussianFilter,medianFilter,
                contourFilter1,contourFilter2,sharpeningFilter1,
                sharpeningFilter2,filterImage,blackAndWhiteFilter,
-               canny,Filter)
+               canny,defaultFilterWeighted,weights,Filter)
 
 {- Error reporting data type -}
 data CLInputError = FlagNeeded String
@@ -129,7 +130,7 @@ mainIOLoop :: MVar Img -> FilePath -> IO ()
 mainIOLoop img outf = forever $ do
   prompt
   cmdline <- getLine
-  case (parse command "parse error" cmdline) of
+  case (parse command "Input error" cmdline) of
     Left err -> print err
     Right (Filter Default) -> do
       putStrLn "Applying default filter..."
@@ -178,10 +179,10 @@ mainIOLoop img outf = forever $ do
       mainFilter [allBlue] img
     Right (Filter (Weighted m)) -> do
       putStrLn "Applying weighted filter..."
-      mainFilter [allGreen] img
+      mainFilter [defaultFilterWeighted{weights = (S.fromList m)}] img
     Right (Filter (Composition s)) -> do
       putStrLn "Applying composition of filter..."
-      mainFilter [allGreen] img
+      mainFilter [] img
     Right Write -> do
       case (Prelude.null outf) of
         True -> putStrLn "Output file not provided."
@@ -324,7 +325,7 @@ data FilterAlgorithm = Default
                      | Canny
                      | NoRed | NoGreen | NoBlue
                      | AllRed | AllGreen | AllBlue
-                     | Weighted [((Int,Int), (Word8,Word8,Word8,Word8))]
+                     | Weighted [((Int,Int), (Float,Float,Float,Float))]
                      | Composition (Seq FilterAlgorithm)
                      deriving (Show)
 
@@ -333,8 +334,8 @@ int = do
   pe <- many digit
   return $ read (pe)
 
-word8 :: Parser Word8
-word8 = do
+float :: Parser Float
+float = do
   pe <- many digit
   return $ read (pe)
 
@@ -351,28 +352,28 @@ pos = do
   P.char ')'
   return (x,y)
 
-colorParser :: Parser (Word8,Word8,Word8,Word8)
+colorParser :: Parser (Float,Float,Float,Float)
 colorParser = do
   P.char '('
   spaces
-  r <- word8
+  r <- float
   spaces
   P.char ','
   spaces
-  g <- word8
+  g <- float
   spaces
   P.char ','
   spaces
-  b <- word8
+  b <- float
   spaces
   P.char ','
   spaces
-  a <- word8
+  a <- float
   spaces
   P.char ')'
   return (r,g,b,a)
 
-tuple :: Parser ((Int,Int),(Word8,Word8,Word8,Word8))
+tuple :: Parser ((Int,Int),(Float,Float,Float,Float))
 tuple = do
   P.char '('
   spaces
@@ -385,7 +386,7 @@ tuple = do
   P.char ')'
   return (p,c)
 
-list :: Parser [((Int,Int),(Word8,Word8,Word8,Word8))]
+list :: Parser [((Int,Int),(Float,Float,Float,Float))]
 list = do
   P.char '['
   spaces

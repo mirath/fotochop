@@ -10,10 +10,11 @@ module Filter (
   --filters
   defaultFilter,
   noRed,
-  
-  --filtering functions
-  filterPixel,
-  filterImage,
+  noGreen,
+  noBlue,
+  allRed,
+  allGreen,
+  allBlue,
   gaussianFilter,
   medianFilter,
   contourFilter1,
@@ -22,8 +23,20 @@ module Filter (
   sharpeningFilter2,
   blackAndWhiteFilter,
   canny,
+  
+  --filtering functions
+  filterPixel,
+  filterImage,
   applyCustomFilter,
-  perPixelFunction,
+  defaultFilterWeighted,
+  weights,
+  postprocesserId,
+  sobelOperatorX,
+  sobelOperatorY,
+  sharpeningWeights1,
+  sharpeningWeights2,
+  constantWeights,
+  circularInvertedWeights,
   
   --utilities
   gaussian,
@@ -37,8 +50,7 @@ module Filter (
   color8ToColorF,
   colorFToColor8,
   squareFootprint,
-  circularFootprint,
-  circularInvertedWeights) where
+  circularFootprint) where
 
 import Data.Array as Arr
 import Data.Foldable as F
