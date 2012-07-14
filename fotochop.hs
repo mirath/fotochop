@@ -161,13 +161,27 @@ mainIOLoop img outf = forever $ do
     Right (Filter NoRed) -> do
       putStrLn "Applying no-red filter..."
       mainFilter [noRed] img
-    Right (Filter NoGreen) -> a
-    Right (Filter NoBlue) -> a
-    Right (Filter AllRed) -> a
-    Right (Filter AllGreen) -> a
-    Right (Filter AllBlue) -> a
-    Right (Filter (Weighted m)) -> a
-    Right (Filter (Composition s)) -> a
+    Right (Filter NoGreen) -> do
+      putStrLn "Applying no-green filter..."
+      mainFilter [noGreen] img
+    Right (Filter NoBlue) -> do
+      putStrLn "Applying no-blue filter..."
+      mainFilter [noBlue] img
+    Right (Filter AllRed) -> do
+      putStrLn "Applying all-red filter..."
+      mainFilter [allRed] img
+    Right (Filter AllGreen) -> do
+      putStrLn "Applying all-green filter..."
+      mainFilter [allGreen] img
+    Right (Filter AllBlue) -> do
+      putStrLn "Applying all-blue filter..."
+      mainFilter [allBlue] img
+    Right (Filter (Weighted m)) -> do
+      putStrLn "Applying weighted filter..."
+      mainFilter [allGreen] img
+    Right (Filter (Composition s)) -> do
+      putStrLn "Applying composition of filter..."
+      mainFilter [allGreen] img
     Right Write -> do
       case (Prelude.null outf) of
         True -> putStrLn "Output file not provided."
@@ -420,8 +434,8 @@ blackAndWhite = do
   string "BlackAndWhite"
   return BlackAndWhite
 
-canny :: Parser FilterAlgorithm
-canny = do
+cannyParser :: Parser FilterAlgorithm
+cannyParser = do
   string "Canny"
   return Canny
 
@@ -476,7 +490,7 @@ filterRec = try defaultFilterParser
             <|> try sharpening1
             <|> try sharpening2
             <|> try blackAndWhite
-            <|> try canny
+            <|> try cannyParser
             <|> try nored
             <|> try nogreen
             <|> try noblue
